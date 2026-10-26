@@ -2,12 +2,12 @@ import SwiftUI
 
 @main
 struct CadenceApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @State private var settings = AppSettings()
+
     var body: some Scene {
         MenuBarExtra("Cadence", systemImage: "music.note") {
-            Button("Quit Cadence") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q")
+            MenuBarContent(settings: settings)
         }
     }
 }
