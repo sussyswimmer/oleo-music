@@ -13,7 +13,7 @@ Personal macOS 26 menu-bar app: notch music player + lock screen player + full-s
 ## Rules
 1. **Never launch Spotify.** `tell application "Spotify"` launches the app if it isn't running. Always check `NSRunningApplication.runningApplications(withBundleIdentifier: "com.spotify.client")` first.
 2. **Never run AppleScript on the main thread.** Use one serial background queue/actor; publish results to a main-actor `@Observable` store.
-3. **Private APIs live in one place**: `Sources/LockScreen/SkyLightBridge.swift`. Resolve symbols at runtime (`dlopen`/`dlsym`) and degrade gracefully if missing. Nothing else in the codebase may touch private APIs.
+3. **Private APIs live in one place**: `Cadence/LockScreen/SkyLightBridge.swift`. Resolve symbols at runtime (`dlopen`/`dlsym`) and degrade gracefully if missing. Nothing else in the codebase may touch private APIs.
 4. **No GPL/NC code copying.** Reference repos are for ideas and API names only. Write our own implementation. Check each repo's LICENSE before even reading closely. `boring.notch` is GPL-3.0 (one fork lists CC BY-NC-ND) — read for concepts only, never paste.
 5. **No Oleo branding**: no name, icon, copy, artwork, or screenshots in the app or repo.
 6. Verify private API signatures against the reference repos or by testing. Do not trust memory for exact `SLS*` function signatures.

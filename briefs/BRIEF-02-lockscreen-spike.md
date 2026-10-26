@@ -10,7 +10,7 @@ Find out, with the smallest possible code, what is actually possible on **my** M
 Free apps (e.g. WidgetScreen, WeatherWidget) already draw over the lock screen without Screen Recording permission by moving a normal window into a SkyLight "space" with a very high absolute level. Reported pieces: `SLSSpaceCreate`, `SLSSpaceSetAbsoluteLevel` (levels around 300–400 reported), `SLSShowSpaces`, `SLSSpaceAddWindowsAndRemoveFromSpaces`, `SLSMainConnectionID`, and setting `canBecomeVisibleWithoutLogin` on the window. **Signatures must be verified against the reference repos or by testing, not from memory.**
 
 ## Tasks
-1. Create `Sources/LockScreen/SkyLightBridge.swift`:
+1. Create `Cadence/LockScreen/SkyLightBridge.swift`:
    - Resolve the needed symbols at runtime from the SkyLight framework (`dlopen` / `dlsym`), expose a small Swift API: `createSpace(level:)`, `addWindow(_:to:)`, `showSpace`, `hideSpace`, `destroySpace`.
    - If any symbol is missing, return a clear "unsupported" error (no crash).
 2. `LockScreenController`:
