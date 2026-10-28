@@ -22,8 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // When the app only hosts unit tests, don't script Spotify or show any windows.
+        guard !Self.isHostingTests else { return }
         Logger.app.info("Cadence launched")
         spotifyMonitor.start()
         lockScreen.start()
+    }
+
+    private static var isHostingTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 }

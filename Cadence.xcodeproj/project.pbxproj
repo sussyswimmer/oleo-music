@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		CAD000000000000000000016 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CAD000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = CAD000000000000000000006;
+			remoteInfo = Cadence;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		CAD000000000000000000004 /* Cadence.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Cadence.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		CAD000000000000000000014 /* CadenceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CadenceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = Cadence;
 			sourceTree = "<group>";
 		};
+		CAD000000000000000000015 /* CadenceTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CadenceTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		CAD000000000000000000008 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CAD000000000000000000019 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				CAD000000000000000000005 /* Cadence */,
+				CAD000000000000000000015 /* CadenceTests */,
 				CAD000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				CAD000000000000000000004 /* Cadence.app */,
+				CAD000000000000000000014 /* CadenceTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,29 @@
 			productReference = CAD000000000000000000004 /* Cadence.app */;
 			productType = "com.apple.product-type.application";
 		};
+		CAD00000000000000000001B /* CadenceTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CAD00000000000000000001C /* Build configuration list for PBXNativeTarget "CadenceTests" */;
+			buildPhases = (
+				CAD000000000000000000018 /* Sources */,
+				CAD000000000000000000019 /* Frameworks */,
+				CAD00000000000000000001A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				CAD000000000000000000017 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				CAD000000000000000000015 /* CadenceTests */,
+			);
+			name = CadenceTests;
+			packageProductDependencies = (
+			);
+			productName = CadenceTests;
+			productReference = CAD000000000000000000014 /* CadenceTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					CAD000000000000000000006 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					CAD00000000000000000001B = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = CAD000000000000000000006;
 					};
 				};
 			};
@@ -100,12 +152,20 @@
 			projectRoot = "";
 			targets = (
 				CAD000000000000000000006 /* Cadence */,
+				CAD00000000000000000001B /* CadenceTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		CAD000000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CAD00000000000000000001A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +182,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		CAD000000000000000000018 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		CAD000000000000000000017 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = CAD000000000000000000006 /* Cadence */;
+			targetProxy = CAD000000000000000000016 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		CAD00000000000000000000C /* Debug */ = {
@@ -258,7 +333,7 @@
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
-				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
@@ -311,6 +386,44 @@
 			};
 			name = Release;
 		};
+		CAD00000000000000000001D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maxwell.cadenceTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cadence.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cadence";
+			};
+			name = Debug;
+		};
+		CAD00000000000000000001E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.maxwell.cadenceTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Cadence.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Cadence";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -328,6 +441,15 @@
 			buildConfigurations = (
 				CAD00000000000000000000E /* Debug */,
 				CAD00000000000000000000F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CAD00000000000000000001C /* Build configuration list for PBXNativeTarget "CadenceTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CAD00000000000000000001D /* Debug */,
+				CAD00000000000000000001E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
