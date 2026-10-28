@@ -8,9 +8,7 @@ struct MenuBarContent: View {
     #endif
 
     var body: some View {
-        // Enabled once the notch player exists (Brief 03).
         Toggle("Show notch player", isOn: $settings.notchEnabled)
-            .disabled(true)
         Toggle("Lock screen player", isOn: $settings.lockScreenEnabled)
 
         Divider()

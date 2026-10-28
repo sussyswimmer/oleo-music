@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let spotify: SpotifyService
     private let spotifyMonitor: SpotifyMonitor
     private let lockScreen: LockScreenController
+    private let notch: NotchPanelController
 
     override init() {
         let settings = AppSettings()
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.spotify = spotify
         spotifyMonitor = SpotifyMonitor(service: spotify)
         lockScreen = LockScreenController(settings: settings, store: nowPlaying, spotify: spotify)
+        notch = NotchPanelController(settings: settings, store: nowPlaying, spotify: spotify)
         super.init()
     }
 
@@ -27,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.app.info("Cadence launched")
         spotifyMonitor.start()
         lockScreen.start()
+        notch.start()
     }
 
     private static var isHostingTests: Bool {
