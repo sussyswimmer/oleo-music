@@ -101,6 +101,7 @@ actor SpotifyService {
     private var lastRefreshFailed = false
     private var automationDenied = false
     private var pollTask: Task<Void, Never>?
+    private var diagnostics: (@Sendable (String) -> Void)?
 
     nonisolated var unownedExecutor: UnownedSerialExecutor {
         queue.asUnownedSerialExecutor()
@@ -110,19 +111,28 @@ actor SpotifyService {
         self.store = store
     }
 
+    /// While set, receives a line for every script outcome. The lock screen spike
+    /// logs these to a file to see whether Spotify answers while the Mac is locked.
+    func setDiagnostics(_ handler: (@Sendable (String) -> Void)?) {
+        diagnostics = handler
+    }
+
     // MARK: Events
 
     /// Reads Spotify's state and publishes it to the store.
     func refresh() async {
         guard Self.isRunning else {
+            diagnostics?("refresh skipped: Spotify isn't running")
             await publish(.idle())
             return
         }
         do throws(SpotifyScriptError) {
             let snapshot = try readSnapshot()
+            diagnostics?("refresh ok: \(snapshot.state), \(snapshot.track?.title ?? "no track")")
             await setAutomationDenied(false)
             await publish(snapshot)
         } catch {
+            diagnostics?("refresh failed: \(error)")
             await handle(error)
         }
     }
@@ -173,10 +183,15 @@ actor SpotifyService {
     }
 
     private func perform(_ command: String, cacheScript: Bool = true) async {
-        guard Self.isRunning else { return }
+        guard Self.isRunning else {
+            diagnostics?("\(command) skipped: Spotify isn't running")
+            return
+        }
         do throws(SpotifyScriptError) {
             _ = try run(Self.commandScript(command), cache: cacheScript)
+            diagnostics?("\(command) ok")
         } catch {
+            diagnostics?("\(command) failed: \(error)")
             await handle(error)
             return
         }
