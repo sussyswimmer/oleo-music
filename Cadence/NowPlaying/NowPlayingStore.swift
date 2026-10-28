@@ -20,6 +20,8 @@ final class NowPlayingStore {
     private(set) var positionAnchor = PositionAnchor(seconds: 0, date: .distantPast)
     /// macOS blocked Cadence from controlling Spotify (Automation permission denied).
     private(set) var automationDenied = false
+    /// When playback paused; nil unless paused. The lock screen keeps a paused track up for a while.
+    private(set) var pausedSince: Date?
 
     @ObservationIgnored private let artworkLoader: ArtworkLoader
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
@@ -48,6 +50,11 @@ final class NowPlayingStore {
 
         if snapshot.track?.artworkURL != track?.artworkURL {
             loadArtwork(from: snapshot.track?.artworkURL)
+        }
+        if snapshot.state != .paused {
+            pausedSince = nil
+        } else if state != .paused {
+            pausedSince = snapshot.readAt
         }
         state = snapshot.state
         track = snapshot.track
