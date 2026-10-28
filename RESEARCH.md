@@ -133,3 +133,19 @@ Pending results.
 - Card: Liquid Glass, 360 pt wide, dark appearance; artwork, title, artist, progress with elapsed and remaining time (updated once a second, paused unless playing); ⏮ ⏯ ⏭ when interactive. Tapping the artwork is wired to a placeholder that Brief 05 replaces with full-screen art.
 - Shown while locked if a track is playing, or paused less than 10 minutes ago. Hidden when Spotify is idle or quits, while the display sleeps, and after the keyboard safety trips.
 - Constants (in `LockScreenController`): card center 45% up the screen, paused card kept 10 minutes, fail-safe every 3 s, space level 400 (setting), fade-in 0.3 s.
+
+## Brief 05: full-screen art
+
+**Status:** built for the case where clicks reach the lock screen; not yet run on the Mac. If Brief 02 finds they don't, the trigger needs your decision (below) before anything else is built.
+
+- **Trigger:** tap the artwork on the lock screen card; tap anywhere to close. The window grows to the whole screen before the animation and shrinks back after it, and the artwork animates from the card into the big cover (matched geometry). Setting: **Full-screen album art** in the menu (on by default).
+- **Layout:** date and time at the top (thin, 10% of the screen height, hours and minutes, redrawn once a minute); cover 50% of the screen height with a soft shadow; title and artist; a thin progress bar.
+- **Palette** (`PaletteExtractor`, unit-tested with synthetic pixels): downsample to 32 × 32; skip transparent pixels and near-black, near-white, grey and dull ones (brightness under 0.2 or saturation under 0.25); group the rest into 24 hues × 4 saturations × 4 brightnesses; drop groups under 1% of the pixels; rank by size × (0.5 + saturation × brightness); keep up to 5 colors at least 0.22 apart (RGB distance). One or two colors get darker and slightly shifted shades added to make 3. No vivid colors at all (black and white, grey, very dark covers) gives a fixed indigo / plum / teal palette.
+- **Background:** a 3 × 3 mesh gradient of the palette (darker corners), drifting on slow unrelated cycles, darkened 28% for legible white text. It cross-fades over 1 s when the palette changes.
+- **Cost:** the mesh renders at a quarter of the screen size, is softened, then scaled up, which is smooth anyway and cheap on the GPU. 20 fps while playing, 2 fps while paused, stopped when nothing is loaded. The progress bar updates once a second, the clock once a minute.
+- **Closing with a key press isn't possible.** The brief asks for "tap again (or press a key)". Key presses on the lock screen go to the password field, not to Cadence, and seeing them would need Accessibility permission, which Cadence must not ask for. So it closes on a tap. Typing the password still works while the art is showing (the field keeps the keyboard), and Touch ID works.
+
+**If clicks don't reach the lock screen**, full-screen art needs another trigger. Options to choose from (not built):
+1. Open automatically after N seconds locked while playing (for example 10 s); close on unlock or display sleep.
+2. A setting, "Always full-screen when locked", that skips the card entirely.
+3. No full-screen art in display-only mode.
