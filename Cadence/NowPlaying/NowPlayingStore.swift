@@ -17,6 +17,8 @@ final class NowPlayingStore {
     private(set) var track: Track?
     /// Artwork for `track`. The previous image stays until the new one has loaded.
     private(set) var artwork: NSImage?
+    /// Colors from `artwork`, for the full-screen art background.
+    private(set) var palette = PaletteExtractor.fallback
     private(set) var positionAnchor = PositionAnchor(seconds: 0, date: .distantPast)
     /// macOS blocked Cadence from controlling Spotify (Automation permission denied).
     private(set) var automationDenied = false
@@ -70,6 +72,7 @@ final class NowPlayingStore {
         guard let url else {
             artworkTask = nil
             artwork = nil
+            palette = PaletteExtractor.fallback
             return
         }
         artworkTask = Task {
@@ -77,6 +80,7 @@ final class NowPlayingStore {
             // A newer track replaced this one while it loaded.
             guard !Task.isCancelled else { return }
             artwork = image
+            palette = image.map(PaletteExtractor.palette(from:)) ?? PaletteExtractor.fallback
         }
     }
 }
