@@ -3,19 +3,26 @@ import Observation
 import SwiftUI
 import os
 
-/// Brief 02 spike: on lock, shows a small card over the lock screen and records
-/// what works (drawing, input, Spotify) to `LockScreenLog`.
+/// Shows the now-playing card over the lock screen.
 ///
-/// Safety: the card never takes keyboard focus, tears itself down if a key
-/// press ever reaches Cadence while locked, and is removed on any of three
-/// unlock signals (two notifications and a session-state check).
+/// While locked, the card is up whenever a track is playing or was paused less
+/// than `pausedCardDuration` ago, and the display is awake. Each time it appears,
+/// a fresh SkyLight space high enough to draw above the lock screen is created and
+/// the card window moved into it; both are removed when it goes away.
+///
+/// Safety: the card never takes keyboard focus, and if a key press ever reaches
+/// Cadence while locked it disappears until unlock. Four signals count as unlock:
+/// two lock-state notifications, another regular app becoming active, and a
+/// session-state check every few seconds while locked.
 @MainActor
 final class LockScreenController: NSObject {
-    /// Space levels the debug menu offers for testing.
-    static let spikeLevels = [300, 400, 500]
-    /// The card is centered horizontally, with its center this far up the screen.
+    /// The card's center is this far up the screen, as a fraction of its height.
     static let cardCenterHeightFraction = 0.45
+    /// A paused track stays on the lock screen this long, like on iPhone.
+    static let pausedCardDuration: TimeInterval = 10 * 60
     static let failSafeInterval: TimeInterval = 3
+    /// Space levels the debug menu offers.
+    static let spaceLevels = [300, 400, 500]
 
     private static let sessionLockedName = "com.apple.sessionagent.screenIsLocked"
     private static let sessionUnlockedName = "com.apple.sessionagent.screenIsUnlocked"
@@ -24,20 +31,23 @@ final class LockScreenController: NSObject {
     private let store: NowPlayingStore
     private let spotify: SpotifyService
     private let log = LockScreenLog.shared
-    private let model = LockScreenSpikeModel()
     private lazy var bridge = SkyLightBridge.load()
 
+    private var isLocked = false
+    private var displayAwake = true
+    /// A key press reached Cadence while locked: keep the card away until unlock.
+    private var keyboardSafetyTripped = false
+    /// The fail-safe only acts once the session has reported "locked" during this
+    /// lock, so a macOS that stopped reporting it can't make it fire early.
+    private var sessionLockReported = false
     private var window: NSWindow?
     private var space: SkyLightBridge.SpaceID?
-    private var spacesCreated = 0
     private var failSafeTimer: Timer?
-    /// The fail-safe only acts once the session dictionary has reported "locked",
-    /// so a macOS that stopped reporting it can't tear the card down at once.
-    private var sessionLockReported = false
+    private var pauseExpiryTask: Task<Void, Never>?
     private var eventMonitor: Any?
+    private var workspaceObservers: [NSObjectProtocol] = []
     /// Diagnostics on/off updates, chained so they reach SpotifyService in order.
     private var diagnosticsUpdate: Task<Void, Never>?
-    private var workspaceObservers: [NSObjectProtocol] = []
     private var lastMouseMovedLog = Date.distantPast
 
     init(settings: AppSettings, store: NowPlayingStore, spotify: SpotifyService) {
@@ -50,8 +60,7 @@ final class LockScreenController: NSObject {
     func start() {
         guard workspaceObservers.isEmpty else { return }
 
-        // The notifications the brief names. Delivered immediately: AppKit holds
-        // distributed notifications while an app is inactive.
+        // Delivered immediately: AppKit holds distributed notifications while an app is inactive.
         let distributed = DistributedNotificationCenter.default()
         distributed.addObserver(
             self, selector: #selector(distributedScreenLocked(_:)),
@@ -77,17 +86,30 @@ final class LockScreenController: NSObject {
         }, Self.sessionUnlockedName as CFString, nil, .deliverImmediately)
 
         let workspace = NSWorkspace.shared.notificationCenter
-        for event in PowerEvent.allCases {
-            workspaceObservers.append(workspace.addObserver(forName: event.notification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.powerEvent(event) }
-            })
-        }
+        workspaceObservers.append(workspace.addObserver(
+            forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.displayChanged(awake: false) }
+        })
+        workspaceObservers.append(workspace.addObserver(
+            forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.displayChanged(awake: true) }
+        })
+        workspaceObservers.append(workspace.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            let isRegularApp = app?.activationPolicy == .regular
+            let name = app?.bundleIdentifier ?? "an app"
+            MainActor.assumeIsolated { self?.appActivated(name: name, isRegularApp: isRegularApp) }
+        })
 
-        observeEnabledSetting()
-        log.write("Cadence started; lock screen player \(settings.lockScreenEnabled ? "on" : "off"), level \(settings.lockScreenSpaceLevel)")
+        observeNowPlaying()
+        log.write("started; lock screen player \(settings.lockScreenEnabled ? "on" : "off"), level \(settings.lockScreenSpaceLevel), \(settings.lockScreenInteractive ? "interactive" : "display-only")")
     }
 
-    // MARK: Lock and unlock
+    // MARK: Lock state
 
     @objc private nonisolated func distributedScreenLocked(_ notification: Notification) {
         Task { @MainActor in self.screenLocked(source: "distributed") }
@@ -98,22 +120,89 @@ final class LockScreenController: NSObject {
     }
 
     private func screenLocked(source: String) {
-        log.write("lock notification (\(source)); session locked: \(Self.sessionLockDescription())")
-        guard settings.lockScreenEnabled else {
-            log.write("lock screen player is off; not showing")
+        // Each lock arrives from two sources; the second only re-checks the card.
+        guard !isLocked else {
+            updateCard()
             return
         }
-        // Each lock arrives twice (two notifications); the second one is a no-op.
-        guard window == nil else { return }
-        show()
+        isLocked = true
+        keyboardSafetyTripped = false
+        sessionLockReported = Self.isSessionLocked() == true
+        log.write("locked (\(source)); session reports locked: \(Self.sessionLockDescription())")
+        startFailSafe()
+        updateCard()
     }
 
     private func screenUnlocked(source: String) {
-        log.write("unlock notification (\(source))")
-        teardown(reason: "unlock (\(source))")
+        guard isLocked else { return }
+        isLocked = false
+        log.write("unlocked (\(source))")
+        failSafeTimer?.invalidate()
+        failSafeTimer = nil
+        pauseExpiryTask?.cancel()
+        hideCard(reason: "unlock")
     }
 
-    private func show() {
+    private func displayChanged(awake: Bool) {
+        displayAwake = awake
+        guard isLocked else { return }
+        log.write("display \(awake ? "woke" : "slept")")
+        // The card is rebuilt on wake: windows over the lock screen can vanish across sleep.
+        updateCard()
+    }
+
+    private func appActivated(name: String, isRegularApp: Bool) {
+        guard isLocked else { return }
+        // Lock-screen processes aren't regular apps; a regular app coming forward
+        // means the user is back in their session.
+        if isRegularApp, name != Bundle.main.bundleIdentifier {
+            screenUnlocked(source: "\(name) became active")
+        } else if log.isEnabled {
+            log.write("\(name) became active while locked (not a regular app; still locked)")
+        }
+    }
+
+    // MARK: Card
+
+    private var cardShouldShow: Bool {
+        guard isLocked, displayAwake, !keyboardSafetyTripped, settings.lockScreenEnabled, store.track != nil else {
+            return false
+        }
+        switch store.state {
+        case .playing:
+            return true
+        case .paused:
+            return store.pausedSince.map { Date.now.timeIntervalSince($0) < Self.pausedCardDuration } ?? false
+        case .idle:
+            return false
+        }
+    }
+
+    private func updateCard() {
+        if cardShouldShow {
+            if window == nil {
+                showCard()
+            }
+        } else if window != nil {
+            hideCard(reason: "nothing to show")
+        }
+        schedulePauseExpiry()
+    }
+
+    /// Re-checks the card when a paused track's time on the lock screen runs out.
+    private func schedulePauseExpiry() {
+        pauseExpiryTask?.cancel()
+        guard isLocked, store.state == .paused, let pausedSince = store.pausedSince else { return }
+        let remaining = Self.pausedCardDuration - Date.now.timeIntervalSince(pausedSince)
+        guard remaining > 0 else { return }
+        pauseExpiryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard !Task.isCancelled else { return }
+            self?.updateCard()
+        }
+    }
+
+    private func showCard() {
         let bridge: SkyLightBridge
         switch self.bridge {
         case .success(let loaded):
@@ -126,36 +215,32 @@ final class LockScreenController: NSObject {
             log.write("not showing: no screen")
             return
         }
-
         let level = Int32(settings.lockScreenSpaceLevel)
         guard let created = bridge.createSpace(level: level) else {
             log.write("not showing: SLSSpaceCreate returned no space")
             return
         }
-        spacesCreated += 1
-        model.reset(level: level)
-        let window = makeWindow(on: screen)
+
+        let window = makeWindow(on: screen, interactive: settings.lockScreenInteractive)
         bridge.showSpace(created.id)
         let addResult = bridge.addWindow(window, to: created.id)
+        window.alphaValue = 0
         window.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            window.animator().alphaValue = 1
+        }
         self.window = window
         space = created.id
-        sessionLockReported = Self.isSessionLocked() == true
-
+        installKeyboardSafety()
+        setSpotifyDiagnostics(enabled: log.isEnabled)
         log.write("""
-            shown: space \(created.id) level \(level) (set level result \(created.levelResult)), \
-            add window result \(addResult), window \(window.windowNumber) at \(window.frame), \
-            spaces created this run: \(spacesCreated)
+            card shown: space \(created.id) at level \(level) (result \(created.levelResult)), \
+            window \(window.windowNumber) added (result \(addResult)) at \(window.frame)
             """)
-        logStoreState()
-        startFailSafe()
-        installEventMonitor()
-        setSpotifyDiagnostics(enabled: true)
     }
 
-    private func teardown(reason: String) {
-        failSafeTimer?.invalidate()
-        failSafeTimer = nil
+    private func hideCard(reason: String) {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
@@ -164,33 +249,19 @@ final class LockScreenController: NSObject {
         window.orderOut(nil)
         window.close()
         self.window = nil
+        var destroyed = false
         if let space, case .success(let bridge) = bridge {
             bridge.hideSpace(space)
+            destroyed = bridge.destroySpace(space)
         }
         space = nil
         setSpotifyDiagnostics(enabled: false)
-        log.write("torn down: \(reason)")
+        log.write("card removed (\(reason)); space \(destroyed ? "destroyed" : "hidden")")
     }
 
-    /// While locked, logs every Spotify script result, and refreshes once to test reading.
-    private func setSpotifyDiagnostics(enabled: Bool) {
-        let previous = diagnosticsUpdate
-        var handler: (@Sendable (String) -> Void)?
-        if enabled {
-            handler = { [log] line in log.write("spotify: \(line)") }
-        }
-        diagnosticsUpdate = Task { [spotify, handler] in
-            await previous?.value
-            await spotify.setDiagnostics(handler)
-            if enabled {
-                await spotify.refresh()
-            }
-        }
-    }
-
-    private func makeWindow(on screen: NSScreen) -> NSWindow {
-        let content = LockScreenSpikeView(store: store, spotify: spotify, model: model) { [log] action in
-            log.write("button: \(action)")
+    private func makeWindow(on screen: NSScreen, interactive: Bool) -> NSWindow {
+        let content = LockScreenView(store: store, spotify: spotify, interactive: interactive) { [weak self] in
+            self?.artworkTapped()
         }
         let hostingView = FirstMouseHostingView(rootView: content)
         let size = hostingView.fittingSize
@@ -203,10 +274,16 @@ final class LockScreenController: NSObject {
         let panel = LockScreenPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.contentView = hostingView
         panel.setFrame(frame, display: false)
+        // Display-only: clicks go straight through to the lock screen.
+        panel.ignoresMouseEvents = !interactive
         return panel
     }
 
-    // MARK: Fail-safe
+    private func artworkTapped() {
+        log.write("artwork tapped; full-screen art is Brief 05")
+    }
+
+    // MARK: Safety
 
     private func startFailSafe() {
         failSafeTimer?.invalidate()
@@ -223,8 +300,7 @@ final class LockScreenController: NSObject {
         case true?:
             sessionLockReported = true
         case false? where sessionLockReported:
-            log.write("fail-safe: session reports unlocked")
-            teardown(reason: "fail-safe")
+            screenUnlocked(source: "fail-safe: session reports unlocked")
         default:
             break
         }
@@ -244,32 +320,30 @@ final class LockScreenController: NSObject {
         }
     }
 
-    // MARK: Input
-
-    private func installEventMonitor() {
+    /// Key presses belong to the password field. If one reaches Cadence, the card
+    /// is in the way: remove it until unlock. Also logs input in diagnostics builds.
+    private func installKeyboardSafety() {
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .any) { [weak self] event in
             // Pass only the type across: NSEvent itself isn't Sendable.
             let type = event.type
-            MainActor.assumeIsolated { self?.record(type) }
+            MainActor.assumeIsolated { self?.received(type) }
             return event
         }
     }
 
-    private func record(_ type: NSEvent.EventType) {
-        let name = Self.name(of: type)
-        model.recordEvent(name)
+    private func received(_ type: NSEvent.EventType) {
         if type == .keyDown {
-            // Key presses belong to the password field. If one reaches Cadence,
-            // the card is in the way: get out immediately.
-            log.write("input: keyDown reached Cadence; removing the card so the password field keeps focus")
-            teardown(reason: "keyboard safety")
+            keyboardSafetyTripped = true
+            log.write("input: keyDown reached Cadence; removing the card until unlock")
+            hideCard(reason: "keyboard safety")
             return
         }
+        guard log.isEnabled else { return }
         if type == .mouseMoved {
             guard Date.now.timeIntervalSince(lastMouseMovedLog) > 1 else { return }
             lastMouseMovedLog = .now
         }
-        log.write("input: \(name) (total \(model.inputCount))")
+        log.write("input: \(Self.name(of: type))")
     }
 
     private static func name(of type: NSEvent.EventType) -> String {
@@ -292,50 +366,35 @@ final class LockScreenController: NSObject {
 
     // MARK: Observation
 
-    private func logStoreState() {
-        guard window != nil else { return }
-        log.write("now playing: \(store.state), “\(store.track?.title ?? "no track")”, artwork \(store.artwork == nil ? "not loaded" : "loaded")")
+    private func observeNowPlaying() {
         withObservationTracking {
-            _ = (store.state, store.track, store.artwork)
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.logStoreState() }
-        }
-    }
-
-    private func observeEnabledSetting() {
-        withObservationTracking {
-            _ = settings.lockScreenEnabled
+            _ = (store.state, store.track?.id, store.pausedSince, store.artwork, settings.lockScreenEnabled)
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                if !self.settings.lockScreenEnabled {
-                    self.teardown(reason: "lock screen player turned off")
+                if self.isLocked, self.log.isEnabled {
+                    self.log.write("now playing: \(self.store.state), “\(self.store.track?.title ?? "no track")”, artwork \(self.store.artwork == nil ? "not loaded" : "loaded")")
                 }
-                self.observeEnabledSetting()
+                self.updateCard()
+                self.observeNowPlaying()
             }
         }
     }
 
-    private enum PowerEvent: CaseIterable {
-        case willSleep, didWake, screensDidSleep, screensDidWake
-
-        var notification: Notification.Name {
-            switch self {
-            case .willSleep: NSWorkspace.willSleepNotification
-            case .didWake: NSWorkspace.didWakeNotification
-            case .screensDidSleep: NSWorkspace.screensDidSleepNotification
-            case .screensDidWake: NSWorkspace.screensDidWakeNotification
-            }
+    /// While the card is up in a diagnostics build, logs every Spotify script result
+    /// and refreshes once, to see whether Spotify answers while locked.
+    private func setSpotifyDiagnostics(enabled: Bool) {
+        let previous = diagnosticsUpdate
+        var handler: (@Sendable (String) -> Void)?
+        if enabled {
+            handler = { [log] line in log.write("spotify: \(line)") }
         }
-    }
-
-    private func powerEvent(_ event: PowerEvent) {
-        log.write("\(event); session locked: \(Self.sessionLockDescription())")
-        // ARCHITECTURE.md: lock screen windows can vanish after sleep, so rebuild on wake.
-        // Waking from full sleep posts didWake too; screensDidWake covers both cases once.
-        if event == .screensDidWake, window != nil {
-            teardown(reason: "rebuilding after \(event)")
-            show()
+        diagnosticsUpdate = Task { [spotify, handler] in
+            await previous?.value
+            await spotify.setDiagnostics(handler)
+            if enabled {
+                await spotify.refresh()
+            }
         }
     }
 }

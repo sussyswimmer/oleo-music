@@ -29,11 +29,13 @@ struct MenuBarContent: View {
             NSApplication.shared.activate()
         }
         Picker("Lock screen level", selection: $settings.lockScreenSpaceLevel) {
-            ForEach(LockScreenController.spikeLevels, id: \.self) { level in
+            ForEach(LockScreenController.spaceLevels, id: \.self) { level in
                 Text("\(level)").tag(level)
             }
         }
         .pickerStyle(.menu)
+        // On if clicks reach the lock screen (Brief 02); off makes the card display-only.
+        Toggle("Lock screen controls", isOn: $settings.lockScreenInteractive)
         Button("Show lock screen log") {
             NSWorkspace.shared.open(LockScreenLog.shared.fileURL)
         }

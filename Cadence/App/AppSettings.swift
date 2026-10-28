@@ -12,6 +12,7 @@ final class AppSettings {
         static let notchEnabled = "notchEnabled"
         static let lockScreenEnabled = "lockScreenEnabled"
         static let lockScreenSpaceLevel = "lockScreenSpaceLevel"
+        static let lockScreenInteractive = "lockScreenInteractive"
     }
 
     var notchEnabled: Bool {
@@ -27,6 +28,12 @@ final class AppSettings {
     /// the level SkyLightWindow uses to draw above the lock screen.
     var lockScreenSpaceLevel: Int {
         didSet { defaults.set(lockScreenSpaceLevel, forKey: Key.lockScreenSpaceLevel) }
+    }
+
+    /// Whether the lock screen card has controls. Off means display-only, for a
+    /// macOS where clicks don't reach windows over the lock screen (Brief 02).
+    var lockScreenInteractive: Bool {
+        didSet { defaults.set(lockScreenInteractive, forKey: Key.lockScreenInteractive) }
     }
 
     var launchAtLogin: Bool {
@@ -47,11 +54,13 @@ final class AppSettings {
             Key.notchEnabled: true,
             Key.lockScreenEnabled: false,
             Key.lockScreenSpaceLevel: 400,
+            Key.lockScreenInteractive: true,
         ])
         self.defaults = defaults
         notchEnabled = defaults.bool(forKey: Key.notchEnabled)
         lockScreenEnabled = defaults.bool(forKey: Key.lockScreenEnabled)
         lockScreenSpaceLevel = defaults.integer(forKey: Key.lockScreenSpaceLevel)
+        lockScreenInteractive = defaults.bool(forKey: Key.lockScreenInteractive)
         launchAtLoginStatus = SMAppService.mainApp.status
     }
 
