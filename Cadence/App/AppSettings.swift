@@ -11,6 +11,7 @@ final class AppSettings {
     enum Key {
         static let notchEnabled = "notchEnabled"
         static let lockScreenEnabled = "lockScreenEnabled"
+        static let lockScreenSpaceLevel = "lockScreenSpaceLevel"
     }
 
     var notchEnabled: Bool {
@@ -20,6 +21,12 @@ final class AppSettings {
     /// Off by default: the lock screen player relies on private APIs.
     var lockScreenEnabled: Bool {
         didSet { defaults.set(lockScreenEnabled, forKey: Key.lockScreenEnabled) }
+    }
+
+    /// SkyLight space level for the lock screen window. Brief 02 tries a few; 400 is
+    /// the level SkyLightWindow uses to draw above the lock screen.
+    var lockScreenSpaceLevel: Int {
+        didSet { defaults.set(lockScreenSpaceLevel, forKey: Key.lockScreenSpaceLevel) }
     }
 
     var launchAtLogin: Bool {
@@ -39,10 +46,12 @@ final class AppSettings {
         defaults.register(defaults: [
             Key.notchEnabled: true,
             Key.lockScreenEnabled: false,
+            Key.lockScreenSpaceLevel: 400,
         ])
         self.defaults = defaults
         notchEnabled = defaults.bool(forKey: Key.notchEnabled)
         lockScreenEnabled = defaults.bool(forKey: Key.lockScreenEnabled)
+        lockScreenSpaceLevel = defaults.integer(forKey: Key.lockScreenSpaceLevel)
         launchAtLoginStatus = SMAppService.mainApp.status
     }
 
