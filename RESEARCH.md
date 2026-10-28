@@ -50,48 +50,49 @@ Apple restricted the MediaRemote Now Playing API for third-party apps starting m
 
 ## Brief 02 findings: lock screen spike
 
-**Status:** spike code written and pushed; **not yet run on the Mac.** Fill in the results table below from a test run, then decide GO / GO-display-only / NO-GO.
+**Status:** code written and pushed; **not yet run on the Mac.** Fill in the results table below from a test run, then decide GO / GO-display-only / NO-GO. Since Brief 04 the spike card has been replaced by the real lock screen player; the tests below run against that, and Debug builds still log everything they need.
 
-### What the spike does
-- On lock, if **Lock screen player** is on (menu bar; off by default), Cadence creates a SkyLight space at the chosen level, moves a small card window into it and shows it. On unlock it removes the window and hides the space.
-- The card shows artwork, title, artist, ⏮ ⏯ ⏭, a clock ticking every second (proves it keeps rendering), an input-event counter, a hover counter, the space level, and the last event type in red.
-- Everything is logged to `~/Library/Logs/Cadence/lockscreen.log` (Debug builds: menu → **Show lock screen log**): lock/unlock notifications and which source sent them, space and window results, every input event, every Spotify script result while locked, now-playing changes, sleep/wake.
-- Debug builds add **Lock screen level** (300 / 400 / 500) to the menu.
+### What runs on lock
+- If **Lock screen player** is on (menu bar; off by default) and a track is playing or was paused less than 10 minutes ago, Cadence creates a SkyLight space at the chosen level, moves the card window into it and shows it. When the card goes away (unlock, nothing playing, display asleep) the window is removed and the space hidden and destroyed.
+- Debug builds log to `~/Library/Logs/Cadence/lockscreen.log` (menu → **Show lock screen log**): lock and unlock and which signal reported them, space and window results, every input event that reaches the card, every Spotify script result while the card is up, now-playing changes, display sleep and wake. Release builds log there only after `defaults write com.maxwell.cadence LockScreenDiagnostics -bool YES`.
+- Debug builds add **Lock screen level** (300 / 400 / 500) and **Lock screen controls** (on: interactive card; off: display-only, and clicks pass straight through) to the menu.
 
 ### Safety measures
 - The window is card-sized, not full screen, and can never become key, so the password field keeps the keyboard.
-- If a key press ever reaches Cadence while locked, the card removes itself immediately.
-- Three unlock signals, any of which removes the card: `com.apple.screenIsUnlocked` (distributed), `com.apple.sessionagent.screenIsUnlocked` (Darwin notify), and a 3 s fail-safe reading `CGSSessionScreenIsLocked` from `CGSessionCopyCurrentDictionary`. The fail-safe only acts after the session has reported "locked" at least once during that lock, so a macOS that stopped reporting the key can't make it fire early.
+- If a key press ever reaches Cadence while locked, the card disappears until the next unlock.
+- Four unlock signals, any of which removes the card: `com.apple.screenIsUnlocked` (distributed), `com.apple.sessionagent.screenIsUnlocked` (Darwin notify), a regular app becoming active, and a 3 s check of `CGSSessionScreenIsLocked` from `CGSessionCopyCurrentDictionary` while locked. That check only acts after the session has reported "locked" during that lock, so a macOS that stopped reporting the key can't make it fire early.
 - Turning **Lock screen player** off removes the card.
-- If any SkyLight symbol is missing, nothing is shown and the log says which symbol.
+- If any required SkyLight symbol is missing, nothing is shown and the log says which.
 
 ### Private API signatures used, and where they were verified
 | Function | Signature used | Source |
 |---|---|---|
 | `SLSMainConnectionID` | `() -> Int32` | SkyLightWindow, yabai |
 | `SLSSpaceCreate` | `(cid, 1, 0) -> Int32` | SkyLightWindow |
-| `SLSSpaceSetAbsoluteLevel` | `(cid, sid: UInt64, level) -> CGError` | SkyLightWindow; 64-bit space IDs per yabai |
-| `SLSShowSpaces` / `SLSHideSpaces` | `(cid, CFArray) -> Void` | SkyLightWindow, yabai |
+| `SLSSpaceSetAbsoluteLevel` | `(cid, sid: UInt64, level) -> CGError` | SkyLightWindow; 64-bit space IDs per yabai and CGSInternal |
+| `SLSShowSpaces` / `SLSHideSpaces` | `(cid, CFArray) -> Void` | SkyLightWindow, yabai, CGSInternal |
 | `SLSSpaceAddWindowsAndRemoveFromSpaces` | `(cid, sid: UInt64, windows: CFArray, 7) -> CGError` | SkyLightWindow |
+| `SLSSpaceDestroy` (else `CGSSpaceDestroy`), optional | `(cid, sid: UInt64) -> Void` | CGSInternal |
 
-Sources: `lakr233/SkyLightWindow` (MIT, July 2026) and `koekeishiya/yabai` (MIT, June 2026). Read for signatures only; Cadence's implementation is its own. Space IDs are passed as 64-bit: a function declared with a 32-bit ID reads the low half of the same register, so this is correct either way.
+Sources: `lakr233/SkyLightWindow` (MIT, July 2026), `koekeishiya/yabai` (MIT, June 2026), `NUIKit/CGSInternal` (MIT, 2016). Read for signatures only; Cadence's implementation is its own. Space IDs are passed as 64-bit: a function declared with a 32-bit ID reads the low half of the same register, so this is correct either way.
 
 ### Notes from the reference repos
-- **No reference declares a way to destroy a space**, so the spike hides it instead. That leaves one empty, hidden space per lock until Cadence quits. Decide in Brief 04 whether that matters, or whether to create one space at launch and reuse it, as SkyLightWindow does.
-- **Lock notifications on macOS 26:** LivePaper (`Raunik2/LivePaper`, MIT, April 2026) listens for `com.apple.sessionagent.screenIsLocked` / `…Unlocked` through the Darwin notify center and calls it the reliable signal on Tahoe. The spike listens to both that and the brief's `com.apple.screenIsLocked` and logs which arrives; only the first shows the card.
+- **Destroying spaces:** SkyLightWindow and yabai never destroy one; CGSInternal declares `void CGSSpaceDestroy(CGSConnectionID, CGSSpaceID)`. Cadence resolves `SLSSpaceDestroy` (SkyLight's name for CGS calls), falls back to `CGSSpaceDestroy`, and if neither exists only hides the space (one empty hidden space per card until Cadence quits). The log says "destroyed" or "hidden" each time.
+- **Lock notifications on macOS 26:** LivePaper (`Raunik2/LivePaper`, MIT, April 2026) listens for `com.apple.sessionagent.screenIsLocked` / `…Unlocked` through the Darwin notify center and calls it the reliable signal on Tahoe. Cadence listens to both that and the brief's `com.apple.screenIsLocked` and logs which arrives.
 - Distributed notifications are held while an app is inactive unless registered with `.deliverImmediately`, which a menu-bar app needs.
 - SkyLightWindow uses level 400 (`kSLSSpaceAbsoluteLevelNotificationCenterAtScreenLock`), so 400 is the default. Its level list: 0 default, 100 setup assistant, 200 security agent, 300 screen lock, 400 notification center at screen lock, 500 boot progress, 600 VoiceOver.
 - `sam-cookr/WeatherWidget` is no longer publicly reachable. `lqSky7/iphone-duo-macos-animation` has no license, so its code was not read.
 
 ### How to run the tests
-1. Build and run the Debug build from Xcode. Turn on **Lock screen player** in the menu, and leave **Lock screen level** at 400.
+1. Build and run the Debug build from Xcode. In the menu, turn on **Lock screen player**; leave **Lock screen level** at 400 and **Lock screen controls** on.
 2. Play music in Spotify.
-3. Press Ctrl+Cmd+Q. On the lock screen: look for the card, click each button, hover over the card, scroll on it, then click the password field and unlock.
-4. Open the menu → **Show lock screen log** and read what happened (or send it to Claude).
-5. Display sleep: lock, let the display turn off (or press the display-off key if you have one), wake it, check the card.
+3. Press Ctrl+Cmd+Q. On the lock screen: look for the card, click each control and the artwork, hover over the card, scroll on it, then click the password field and unlock.
+4. Open the menu → **Show lock screen log**. `input:` lines show which events arrived; `spotify:` lines show whether Spotify answered. Send it to Claude, or fill in the table.
+5. Display sleep: lock, let the display turn off, wake it, check the card comes back.
 6. Full sleep: Apple menu → Sleep (or close the lid), wake, check the lock screen.
 7. Repeat steps 3–4 with levels 300 and 500.
-8. Lock and unlock 10 times in a row; then check that no card is left on the desktop and the menu still works.
+8. Lock and unlock 10 times in a row; check that no card is left on the desktop and the menu still works.
+9. If clicks didn't arrive in step 3: turn **Lock screen controls** off, lock again, and check the card has no controls and nothing on it looks tappable.
 
 If the card ever gets in the way of unlocking, Touch ID still works, and the card removes itself if a key press reaches it.
 
@@ -99,11 +100,11 @@ If the card ever gets in the way of unlocking, Touch ID still works, and the car
 | # | Question | Result | Notes |
 |---|---|---|---|
 | 1 | Card appears over the password screen after Ctrl+Cmd+Q? | | |
-| 2 | Still there and correct after display sleep and wake? | | |
-| 3 | Still there and correct after full sleep and wake? | | |
-| 4 | Button clicks register (counter, log)? | | |
-| 5 | Hover registers? | | |
-| 6 | Scroll registers? | | |
+| 2 | Comes back correctly after display sleep and wake? | | |
+| 3 | Correct after full sleep and wake? | | |
+| 4 | Clicks on the controls arrive (log: `input: leftMouseDown`) and Spotify responds? | | |
+| 5 | Hover arrives (log: `input: mouseEntered` / `mouseMoved`)? | | |
+| 6 | Scroll arrives (log: `input: scrollWheel`)? | | |
 | 7 | Password field still usable after tapping the card? | | |
 | 8 | Spotify reads succeed while locked (log: `spotify: refresh ok`)? | | |
 | 9 | Spotify controls succeed while locked? | | |
@@ -114,12 +115,21 @@ If the card ever gets in the way of unlocking, Touch ID still works, and the car
 | 14 | Level 400: above the password UI? Unlock OK? | | |
 | 15 | Level 500: above the password UI? Unlock OK? | | |
 | 16 | Which lock notification arrived first (distributed / sessionagent)? Both? | | |
-| 17 | Did the session dictionary report locked (fail-safe usable)? | | |
+| 17 | Did the session report locked (log: "session reports locked: yes")? | | |
 | 18 | Does the Liquid Glass card render properly over the lock screen? | | |
 | 19 | Did macOS ask for Screen Recording or Accessibility? (must be no) | | |
+| 20 | Spaces "destroyed" or only "hidden" in the log? | | |
 
 ### Recommendation
 Pending results.
 - **GO:** 1, 4, 7, 9, 11 and 12 pass.
-- **GO-display-only:** 1, 7, 11 and 12 pass but clicks (4) don't arrive.
-- **NO-GO:** 1 fails, unlocking is ever affected, or a window gets stuck after unlock.
+- **GO-display-only:** 1, 7, 11 and 12 pass but clicks (4) don't arrive. Then set **Lock screen controls** off as the default.
+- **NO-GO:** 1 fails, unlocking is ever affected, or a window gets stuck after unlock. Then Brief 04's player and Brief 05 are dropped and v1 is the notch player plus the menu bar app.
+
+## Brief 04: lock screen player
+
+**Status:** built ahead of the Brief 02 results, so it works for either outcome; not yet run on the Mac.
+
+- Card: Liquid Glass, 360 pt wide, dark appearance; artwork, title, artist, progress with elapsed and remaining time (updated once a second, paused unless playing); ⏮ ⏯ ⏭ when interactive. Tapping the artwork is wired to a placeholder that Brief 05 replaces with full-screen art.
+- Shown while locked if a track is playing, or paused less than 10 minutes ago. Hidden when Spotify is idle or quits, while the display sleeps, and after the keyboard safety trips.
+- Constants (in `LockScreenController`): card center 45% up the screen, paused card kept 10 minutes, fail-safe every 3 s, space level 400 (setting), fade-in 0.3 s.
