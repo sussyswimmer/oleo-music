@@ -3,6 +3,9 @@ import ServiceManagement
 
 struct MenuBarContent: View {
     @Bindable var settings: AppSettings
+    #if DEBUG
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     var body: some View {
         // Enabled once the notch player (Brief 03) and lock screen player (Brief 02) exist.
@@ -19,6 +22,16 @@ struct MenuBarContent: View {
                 SMAppService.openSystemSettingsLoginItems()
             }
         }
+
+        #if DEBUG
+        Divider()
+
+        Button("Debug now playing…") {
+            openWindow(id: DebugNowPlayingView.windowID)
+            // A menu-bar app isn't frontmost, so bring the window forward.
+            NSApplication.shared.activate()
+        }
+        #endif
 
         Divider()
 

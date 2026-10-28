@@ -9,5 +9,14 @@ struct CadenceApp: App {
         MenuBarExtra("Cadence", systemImage: "music.note") {
             MenuBarContent(settings: settings)
         }
+
+        #if DEBUG
+        Window("Now Playing (Debug)", id: DebugNowPlayingView.windowID) {
+            DebugNowPlayingView(store: appDelegate.nowPlaying, spotify: appDelegate.spotify)
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+        #endif
     }
 }
