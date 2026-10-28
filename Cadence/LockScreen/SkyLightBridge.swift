@@ -7,10 +7,11 @@ import AppKit
 /// a macOS update, `load()` fails and the lock screen feature stays off.
 ///
 /// Signatures follow SkyLightWindow (lakr233/SkyLightWindow, MIT, July 2026).
-/// Space IDs are passed as 64-bit values, as yabai (MIT) declares them; a function
-/// that takes a 32-bit ID reads the low half of the same register, so this is
-/// correct either way. Neither reference declares a call that destroys a space,
-/// so spaces are hidden when done rather than destroyed.
+/// Space IDs are passed as 64-bit values, as yabai (MIT) and CGSInternal (MIT)
+/// declare them; a function that takes a 32-bit ID reads the low half of the same
+/// register, so this is correct either way. Destroying a space follows
+/// CGSInternal's `void CGSSpaceDestroy(CGSConnectionID, CGSSpaceID)`; it's
+/// optional, and without it spaces are only hidden.
 @MainActor
 final class SkyLightBridge {
     typealias SpaceID = UInt64
@@ -25,6 +26,7 @@ final class SkyLightBridge {
     private typealias SpaceSetAbsoluteLevel = @convention(c) (Int32, UInt64, Int32) -> Int32
     private typealias ShowOrHideSpaces = @convention(c) (Int32, CFArray) -> Void
     private typealias SpaceAddWindowsAndRemoveFromSpaces = @convention(c) (Int32, UInt64, CFArray, Int32) -> Int32
+    private typealias SpaceDestroy = @convention(c) (Int32, UInt64) -> Void
 
     private let connection: Int32
     private let spaceCreate: SpaceCreate
@@ -32,6 +34,7 @@ final class SkyLightBridge {
     private let showSpaces: ShowOrHideSpaces
     private let hideSpaces: ShowOrHideSpaces
     private let spaceAddWindowsAndRemoveFromSpaces: SpaceAddWindowsAndRemoveFromSpaces
+    private let spaceDestroy: SpaceDestroy?
 
     private init(
         connection: Int32,
@@ -39,7 +42,8 @@ final class SkyLightBridge {
         spaceSetAbsoluteLevel: SpaceSetAbsoluteLevel,
         showSpaces: ShowOrHideSpaces,
         hideSpaces: ShowOrHideSpaces,
-        spaceAddWindowsAndRemoveFromSpaces: SpaceAddWindowsAndRemoveFromSpaces
+        spaceAddWindowsAndRemoveFromSpaces: SpaceAddWindowsAndRemoveFromSpaces,
+        spaceDestroy: SpaceDestroy?
     ) {
         self.connection = connection
         self.spaceCreate = spaceCreate
@@ -47,6 +51,7 @@ final class SkyLightBridge {
         self.showSpaces = showSpaces
         self.hideSpaces = hideSpaces
         self.spaceAddWindowsAndRemoveFromSpaces = spaceAddWindowsAndRemoveFromSpaces
+        self.spaceDestroy = spaceDestroy
     }
 
     static func load() -> Result<SkyLightBridge, UnsupportedError> {
@@ -72,13 +77,17 @@ final class SkyLightBridge {
         guard let mainConnectionID, let spaceCreate, let spaceSetAbsoluteLevel, let showSpaces, let hideSpaces, let addWindows else {
             return .failure(UnsupportedError(missing: missing))
         }
+        // Optional: SkyLight's SLS name, else the older CGS name of the same call.
+        let spaceDestroy = (dlsym(handle, "SLSSpaceDestroy") ?? dlsym(handle, "CGSSpaceDestroy"))
+            .map { unsafeBitCast($0, to: SpaceDestroy.self) }
         return .success(SkyLightBridge(
             connection: mainConnectionID(),
             spaceCreate: spaceCreate,
             spaceSetAbsoluteLevel: spaceSetAbsoluteLevel,
             showSpaces: showSpaces,
             hideSpaces: hideSpaces,
-            spaceAddWindowsAndRemoveFromSpaces: addWindows
+            spaceAddWindowsAndRemoveFromSpaces: addWindows,
+            spaceDestroy: spaceDestroy
         ))
     }
 
@@ -98,6 +107,15 @@ final class SkyLightBridge {
 
     func hideSpace(_ space: SpaceID) {
         hideSpaces(connection, [NSNumber(value: space)] as CFArray)
+    }
+
+    /// Destroys an empty space. Returns false if this macOS has no destroy call,
+    /// in which case the space stays hidden until Cadence quits.
+    @discardableResult
+    func destroySpace(_ space: SpaceID) -> Bool {
+        guard let spaceDestroy else { return false }
+        spaceDestroy(connection, space)
+        return true
     }
 
     /// Moves `window` into `space`. Returns the CGError.
