@@ -8,11 +8,10 @@ struct MenuBarContent: View {
     #endif
 
     var body: some View {
-        // Enabled once the notch player (Brief 03) and lock screen player (Brief 02) exist.
+        // Enabled once the notch player exists (Brief 03).
         Toggle("Show notch player", isOn: $settings.notchEnabled)
             .disabled(true)
         Toggle("Lock screen player", isOn: $settings.lockScreenEnabled)
-            .disabled(true)
 
         Divider()
 
@@ -30,6 +29,15 @@ struct MenuBarContent: View {
             openWindow(id: DebugNowPlayingView.windowID)
             // A menu-bar app isn't frontmost, so bring the window forward.
             NSApplication.shared.activate()
+        }
+        Picker("Lock screen level", selection: $settings.lockScreenSpaceLevel) {
+            ForEach(LockScreenController.spikeLevels, id: \.self) { level in
+                Text("\(level)").tag(level)
+            }
+        }
+        .pickerStyle(.menu)
+        Button("Show lock screen log") {
+            NSWorkspace.shared.open(LockScreenLog.shared.fileURL)
         }
         #endif
 
