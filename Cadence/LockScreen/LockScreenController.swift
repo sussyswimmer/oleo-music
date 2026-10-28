@@ -10,6 +10,10 @@ import os
 /// a fresh SkyLight space high enough to draw above the lock screen is created and
 /// the card window moved into it; both are removed when it goes away.
 ///
+/// Tapping the card's artwork opens full-screen art: the window grows to the
+/// whole screen before the animation, and shrinks back after it closes. The
+/// SwiftUI view always lays out on the full screen, offset inside the window.
+///
 /// Safety: the card never takes keyboard focus, and if a key press ever reaches
 /// Cadence while locked it disappears until unlock. Four signals count as unlock:
 /// two lock-state notifications, another regular app becoming active, and a
@@ -23,6 +27,7 @@ final class LockScreenController: NSObject {
     static let failSafeInterval: TimeInterval = 3
     /// Space levels the debug menu offers.
     static let spaceLevels = [300, 400, 500]
+    static let fullScreenAnimation = Animation.spring(response: 0.5, dampingFraction: 0.86)
 
     private static let sessionLockedName = "com.apple.sessionagent.screenIsLocked"
     private static let sessionUnlockedName = "com.apple.sessionagent.screenIsUnlocked"
@@ -31,6 +36,7 @@ final class LockScreenController: NSObject {
     private let store: NowPlayingStore
     private let spotify: SpotifyService
     private let log = LockScreenLog.shared
+    private let presentation = LockScreenPresentation()
     private lazy var bridge = SkyLightBridge.load()
 
     private var isLocked = false
@@ -41,7 +47,11 @@ final class LockScreenController: NSObject {
     /// lock, so a macOS that stopped reporting it can't make it fire early.
     private var sessionLockReported = false
     private var window: NSWindow?
+    private var hostingView: NSView?
     private var space: SkyLightBridge.SpaceID?
+    /// Screen rects of the card and of the whole screen, for resizing the window.
+    private var cardFrame: CGRect = .zero
+    private var screenFrame: CGRect = .zero
     private var failSafeTimer: Timer?
     private var pauseExpiryTask: Task<Void, Never>?
     private var eventMonitor: Any?
@@ -249,6 +259,8 @@ final class LockScreenController: NSObject {
         window.orderOut(nil)
         window.close()
         self.window = nil
+        hostingView = nil
+        presentation.isFullScreen = false
         var destroyed = false
         if let space, case .success(let bridge) = bridge {
             bridge.hideSpace(space)
@@ -260,27 +272,87 @@ final class LockScreenController: NSObject {
     }
 
     private func makeWindow(on screen: NSScreen, interactive: Bool) -> NSWindow {
-        let content = LockScreenView(store: store, spotify: spotify, interactive: interactive) { [weak self] in
-            self?.artworkTapped()
-        }
-        let hostingView = FirstMouseHostingView(rootView: content)
-        let size = hostingView.fittingSize
-        let frame = NSRect(
-            x: screen.frame.midX - size.width / 2,
-            y: screen.frame.minY + screen.frame.height * Self.cardCenterHeightFraction - size.height / 2,
-            width: size.width,
-            height: size.height
+        let measured = NSHostingView(rootView: LockScreenCard(
+            store: store, spotify: spotify, interactive: interactive, artworkNamespace: nil, onArtworkTap: {}
+        ))
+        screenFrame = screen.frame
+        cardFrame = Self.cardFrame(size: measured.fittingSize, on: screen.frame)
+        presentation.isFullScreen = false
+        presentation.canvasSize = screen.frame.size
+        presentation.cardRect = CGRect(
+            x: cardFrame.minX - screenFrame.minX,
+            y: screenFrame.maxY - cardFrame.maxY,
+            width: cardFrame.width,
+            height: cardFrame.height
         )
-        let panel = LockScreenPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.contentView = hostingView
-        panel.setFrame(frame, display: false)
+
+        let content = LockScreenView(
+            store: store,
+            spotify: spotify,
+            presentation: presentation,
+            interactive: interactive,
+            onArtworkTap: { [weak self] in self?.openFullScreen() },
+            onFullScreenTap: { [weak self] in self?.closeFullScreen() }
+        )
+        let hostingView = FirstMouseHostingView(rootView: content)
+        // The window size is managed here, not derived from the SwiftUI content.
+        hostingView.sizingOptions = []
+        let container = NSView()
+        container.addSubview(hostingView)
+
+        let panel = LockScreenPanel(contentRect: cardFrame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.contentView = container
         // Display-only: clicks go straight through to the lock screen.
         panel.ignoresMouseEvents = !interactive
+        self.hostingView = hostingView
+        applyWindowFrame(cardFrame, to: panel)
         return panel
     }
 
-    private func artworkTapped() {
-        log.write("artwork tapped; full-screen art is Brief 05")
+    /// The card's screen rect: centered horizontally, `cardCenterHeightFraction` up the screen.
+    static func cardFrame(size: CGSize, on screen: CGRect) -> CGRect {
+        CGRect(
+            x: screen.midX - size.width / 2,
+            y: screen.minY + screen.height * cardCenterHeightFraction - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    /// Resizes the window without moving the content on screen.
+    private func applyWindowFrame(_ frame: CGRect, to window: NSWindow) {
+        hostingView?.frame = CGRect(
+            x: screenFrame.minX - frame.minX,
+            y: screenFrame.minY - frame.minY,
+            width: screenFrame.width,
+            height: screenFrame.height
+        )
+        window.setFrame(frame, display: true)
+    }
+
+    // MARK: Full-screen art
+
+    private func openFullScreen() {
+        guard settings.fullScreenArtEnabled, settings.lockScreenInteractive, let window, !presentation.isFullScreen else { return }
+        log.write("full-screen art opened")
+        applyWindowFrame(screenFrame, to: window)
+        withAnimation(Self.fullScreenAnimation) {
+            presentation.isFullScreen = true
+        }
+    }
+
+    private func closeFullScreen() {
+        guard presentation.isFullScreen else { return }
+        log.write("full-screen art closed")
+        withAnimation(Self.fullScreenAnimation) {
+            presentation.isFullScreen = false
+        } completion: { [weak self] in
+            MainActor.assumeIsolated {
+                // Shrink only if it wasn't reopened or removed meanwhile.
+                guard let self, !self.presentation.isFullScreen, let window = self.window else { return }
+                self.applyWindowFrame(self.cardFrame, to: window)
+            }
+        }
     }
 
     // MARK: Safety

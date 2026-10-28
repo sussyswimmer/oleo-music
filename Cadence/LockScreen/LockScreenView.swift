@@ -1,24 +1,67 @@
 import SwiftUI
 
+/// Where the card sits and whether full-screen art is showing. Shared by
+/// `LockScreenController` and `LockScreenView`. Rects are in the view's
+/// coordinates: the whole screen, origin at the top left.
+@Observable
+@MainActor
+final class LockScreenPresentation {
+    var isFullScreen = false
+    var canvasSize: CGSize = .zero
+    var cardRect: CGRect = .zero
+}
+
+/// Everything Cadence draws over the lock screen. It always lays out on the full
+/// screen; the window is only card-sized until full-screen art opens.
+struct LockScreenView: View {
+    static let artworkID = "artwork"
+
+    let store: NowPlayingStore
+    let spotify: SpotifyService
+    let presentation: LockScreenPresentation
+    let interactive: Bool
+    let onArtworkTap: () -> Void
+    let onFullScreenTap: () -> Void
+    @Namespace private var artworkNamespace
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            if presentation.isFullScreen {
+                FullScreenArtView(store: store, artworkNamespace: artworkNamespace, size: presentation.canvasSize)
+                    .contentShape(.rect)
+                    .onTapGesture(perform: onFullScreenTap)
+                    .transition(.opacity)
+            } else {
+                LockScreenCard(
+                    store: store,
+                    spotify: spotify,
+                    interactive: interactive,
+                    artworkNamespace: artworkNamespace,
+                    onArtworkTap: onArtworkTap
+                )
+                .position(x: presentation.cardRect.midX, y: presentation.cardRect.midY)
+                .transition(.opacity)
+            }
+        }
+        .frame(width: presentation.canvasSize.width, height: presentation.canvasSize.height, alignment: .topLeading)
+        .ignoresSafeArea()
+    }
+}
+
 /// The lock screen player: a glass card like iPhone's Now Playing widget.
 /// Display-only when clicks can't reach the lock screen: no controls, nothing that looks tappable.
-struct LockScreenView: View {
+struct LockScreenCard: View {
     let store: NowPlayingStore
     let spotify: SpotifyService
     let interactive: Bool
-    /// Tapping the artwork opens full-screen art (Brief 05).
+    /// Nil only when measuring the card's size.
+    let artworkNamespace: Namespace.ID?
     let onArtworkTap: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 14) {
-                ArtworkImage(image: store.artwork, cornerRadius: 10)
-                    .frame(width: 64, height: 64)
-                    .onTapGesture {
-                        if interactive {
-                            onArtworkTap()
-                        }
-                    }
+                artwork
                 VStack(alignment: .leading, spacing: 2) {
                     Text(store.track?.title ?? "")
                         .font(.headline)
@@ -44,6 +87,24 @@ struct LockScreenView: View {
         .frame(width: 360)
         .glassEffect(.regular, in: .rect(cornerRadius: 28))
         .environment(\.colorScheme, .dark)
+    }
+
+    @ViewBuilder
+    private var artwork: some View {
+        let image = ArtworkImage(image: store.artwork, cornerRadius: 10)
+        Group {
+            if let artworkNamespace {
+                image.matchedGeometryEffect(id: LockScreenView.artworkID, in: artworkNamespace)
+            } else {
+                image
+            }
+        }
+        .frame(width: 64, height: 64)
+        .onTapGesture {
+            if interactive {
+                onArtworkTap()
+            }
+        }
     }
 
     private var progress: some View {

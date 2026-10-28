@@ -13,6 +13,7 @@ final class AppSettings {
         static let lockScreenEnabled = "lockScreenEnabled"
         static let lockScreenSpaceLevel = "lockScreenSpaceLevel"
         static let lockScreenInteractive = "lockScreenInteractive"
+        static let fullScreenArtEnabled = "fullScreenArtEnabled"
     }
 
     var notchEnabled: Bool {
@@ -36,6 +37,11 @@ final class AppSettings {
         didSet { defaults.set(lockScreenInteractive, forKey: Key.lockScreenInteractive) }
     }
 
+    /// Tapping the artwork on the lock screen opens full-screen art.
+    var fullScreenArtEnabled: Bool {
+        didSet { defaults.set(fullScreenArtEnabled, forKey: Key.fullScreenArtEnabled) }
+    }
+
     var launchAtLogin: Bool {
         get { launchAtLoginStatus == .enabled }
         set { setLaunchAtLogin(newValue) }
@@ -55,12 +61,14 @@ final class AppSettings {
             Key.lockScreenEnabled: false,
             Key.lockScreenSpaceLevel: 400,
             Key.lockScreenInteractive: true,
+            Key.fullScreenArtEnabled: true,
         ])
         self.defaults = defaults
         notchEnabled = defaults.bool(forKey: Key.notchEnabled)
         lockScreenEnabled = defaults.bool(forKey: Key.lockScreenEnabled)
         lockScreenSpaceLevel = defaults.integer(forKey: Key.lockScreenSpaceLevel)
         lockScreenInteractive = defaults.bool(forKey: Key.lockScreenInteractive)
+        fullScreenArtEnabled = defaults.bool(forKey: Key.fullScreenArtEnabled)
         launchAtLoginStatus = SMAppService.mainApp.status
     }
 

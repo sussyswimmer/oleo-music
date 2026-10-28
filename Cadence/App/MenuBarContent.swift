@@ -10,6 +10,8 @@ struct MenuBarContent: View {
     var body: some View {
         Toggle("Show notch player", isOn: $settings.notchEnabled)
         Toggle("Lock screen player", isOn: $settings.lockScreenEnabled)
+        Toggle("Full-screen album art", isOn: $settings.fullScreenArtEnabled)
+            .disabled(!settings.lockScreenEnabled)
 
         Divider()
 
